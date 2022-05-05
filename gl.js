@@ -18,20 +18,33 @@ var currProj = 'perspective';
 var currResolution = 2048;
 var displayShadowmap = false;
 
+var modelMatrix = null;
+var viewMatrix = null;
+var projectionMatrix = null;
+var lightViewMatrix = null;
+var lightProjectionMatrix = null;
+
 /*
     FBO
 */
 class FBO {
     constructor(size) {
         // TODO: Create FBO and texture with size
+        this.size = size;
+        this.texture = createTexture2D(gl, this.size, this.size, gl.DEPTH_COMPONENT32F, 0, gl.DEPTH_COMPONENT, gl.FLOAT, null, gl.NEAREST, gl.NEAREST, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE);
+        this.fbo = createFBO(gl, gl.DEPTH_ATTACHMENT, this.texture);
     }
 
     start() {
-        // TODO: Bind FBO, set viewport to size, clear depth buffer
+        // TODO: Bind FBO, set viewport to size, clear depth buffer 
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+        gl.viewport(0, 0, this.size, this.size);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
     }
 
     stop() {
-        // TODO: unbind FBO
+        // TODO: unbind FBO 
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }
 }
 
@@ -53,11 +66,12 @@ class ShadowMapProgram {
         this.lightProjectionLoc = gl.getUniformLocation(this.program, "uLightProjection");
         this.samplerLoc = gl.getUniformLocation(this.program, "uSampler");
         this.hasNormalsAttribLoc = gl.getUniformLocation(this.program, "uHasNormals");
-        this.lightDirAttribLoc = gl.getUniformLocation(this.program, "uLightDir");    
+        this.lightDirAttribLoc = gl.getUniformLocation(this.program, "uLightDir");
     }
 
     use() {
-        // TODO: use program
+        // TODO: use program 
+        gl.useProgram(this.program);
     }
 }
 
@@ -68,16 +82,26 @@ class RenderToScreenProgram {
     constructor() {
         this.vertexShader = createShader(gl, gl.VERTEX_SHADER, depthVertShaderSrc);
         this.fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, depthFragShaderSrc);
-        
+
         this.program = createProgram(gl, this.vertexShader, this.fragmentShader);
         this.posAttribLoc = gl.getAttribLocation(this.program, "position");
         this.samplerLoc = gl.getUniformLocation(this.program, "uSampler");
 
         // TODO: Create quad VBO and VAO
+        this.vert = [-1, -1, 0, 1, -1, 0, 1, 1, 0, 1, 1, 0, -1, 1, 0, -1, -1, 0];
+        this.vertexBuffer = createBuffer(gl, gl.ARRAY_BUFFER, new Float32Array(this.vert));
+        this.vao = createVAO(gl, this.posAttribLoc, this.vertexBuffer);
     }
 
     draw(texture) {
         // TODO: Render quad and display texture
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+        gl.useProgram(this.program);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.uniform1i(this.samplerLoc, 0);
+        gl.bindVertexArray(this.vao);
+        gl.drawElements(gl.TRIANGLES, this.vert.length, gl.UNSIGNED_SHORT, 0);
     }
 
 }
@@ -110,11 +134,11 @@ class LayerProgram {
 class Layers {
     constructor() {
         this.layers = {};
-        this.centroid = [0,0,0];
+        this.centroid = [0, 0, 0];
     }
 
     addLayer(name, vertices, indices, color, normals) {
-        if(normals == undefined)
+        if (normals == undefined)
             normals = null;
         var layer = new Layer(vertices, indices, color, normals);
         layer.init();
@@ -127,34 +151,33 @@ class Layers {
     }
 
     draw(modelMatrix, viewMatrix, projectionMatrix, lightViewMatrix = null, lightProjectionMatrix = null, shadowPass = false, texture = null) {
-        for(var layer in this.layers) {
-            if(layer == 'surface') {
+        for (var layer in this.layers) {
+            if (layer == 'surface') {
                 gl.polygonOffset(1, 1);
-            }
-            else {
+            } else {
                 gl.polygonOffset(0, 0);
             }
             this.layers[layer].draw(modelMatrix, viewMatrix, projectionMatrix, lightViewMatrix, lightProjectionMatrix, shadowPass, texture);
         }
     }
 
-    
+
     getCentroid() {
-        var sum = [0,0,0];
+        var sum = [0, 0, 0];
         var numpts = 0;
-        for(var layer in this.layers) {
-            numpts += this.layers[layer].vertices.length/3;
-            for(var i=0; i<this.layers[layer].vertices.length; i+=3) {
+        for (var layer in this.layers) {
+            numpts += this.layers[layer].vertices.length / 3;
+            for (var i = 0; i < this.layers[layer].vertices.length; i += 3) {
                 var x = this.layers[layer].vertices[i];
-                var y = this.layers[layer].vertices[i+1];
-                var z = this.layers[layer].vertices[i+2];
-    
-                sum[0]+=x;
-                sum[1]+=y;
-                sum[2]+=z;
+                var y = this.layers[layer].vertices[i + 1];
+                var z = this.layers[layer].vertices[i + 2];
+
+                sum[0] += x;
+                sum[1] += y;
+                sum[2] += z;
             }
         }
-        return [sum[0]/numpts,sum[1]/numpts,sum[2]/numpts];
+        return [sum[0] / numpts, sum[1] / numpts, sum[2] / numpts];
     }
 }
 
@@ -169,7 +192,7 @@ class Layer {
         this.normals = normals;
 
         this.hasNormals = false;
-        if(this.normals) {
+        if (this.normals) {
             this.hasNormals = true;
         }
     }
@@ -181,17 +204,51 @@ class Layer {
         this.vertexBuffer = createBuffer(gl, gl.ARRAY_BUFFER, new Float32Array(this.vertices));
         this.indexBuffer = createBuffer(gl, gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(this.indices));
 
-        if(this.normals) {
+        if (this.normals) {
             this.normalBuffer = createBuffer(gl, gl.ARRAY_BUFFER, new Float32Array(this.normals));
             this.vao = createVAO(gl, 0, this.vertexBuffer, 1, this.normalBuffer);
-        }
-        else {
+        } else {
             this.vao = createVAO(gl, 0, this.vertexBuffer);
         }
     }
 
     draw(modelMatrix, viewMatrix, projectionMatrix, lightViewMatrix, lightProjectionMatrix, shadowPass = false, texture = null) {
         // TODO: Handle shadow pass (using ShadowMapProgram) and regular pass (using LayerProgram)
+        if (shadowPass) {
+            //use ShadowMapProgram
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+            this.shadowProgram.use();
+
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.uniform1i(this.shadowProgram.samplerLoc, 0);
+
+            gl.uniform4fv(this.shadowProgram.colorAttribLoc, this.color);
+            gl.uniform1i(this.shadowProgram.hasNormalsAttribLoc, this.hasNormals);
+            gl.uniformMatrix4fv(this.shadowProgram.modelLoc, false, new Float32Array(modelMatrix));
+            gl.uniformMatrix4fv(this.shadowProgram.projectionLoc, false, new Float32Array(projectionMatrix));
+            gl.uniformMatrix4fv(this.shadowProgram.viewLoc, false, new Float32Array(viewMatrix));
+            gl.uniformMatrix4fv(this.shadowProgram.lightViewLoc, false, new Float32Array(lightViewMatrix));
+            gl.uniformMatrix4fv(this.shadowProgram.lightProjectionLoc, false, new Float32Array(lightProjectionMatrix));
+            gl.uniform3fv(this.shadowProgram.lightDirAttribLoc, currLightDirection);
+
+            gl.bindVertexArray(this.vao);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+            gl.drawElements(gl.TRIANGLES, this.indices.length, gl.UNSIGNED_INT, 0);
+        } else {
+            //use LayerProgram
+            this.layerProgram.use();
+
+            gl.uniform4fv(this.layerProgram.colorAttribLoc, this.color);
+            gl.uniformMatrix4fv(this.layerProgram.modelLoc, false, new Float32Array(modelMatrix));
+            gl.uniformMatrix4fv(this.layerProgram.projectionLoc, false, new Float32Array(projectionMatrix));
+            gl.uniformMatrix4fv(this.layerProgram.viewLoc, false, new Float32Array(viewMatrix));
+
+            gl.bindVertexArray(this.vao);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+            gl.drawElements(gl.TRIANGLES, this.indices.length, gl.UNSIGNED_INT, 0);
+        }
     }
 }
 
@@ -200,10 +257,15 @@ class Layer {
 */
 window.updateRotate = function() {
     currRotate = parseInt(document.querySelector("#rotate").value);
+    updateViewMatrix(currRotate);
+    updateModelMatrix(currRotate);
+    updateProjectionMatrix();
 }
 
 window.updateLightRotate = function() {
     currLightRotate = parseInt(document.querySelector("#lightRotate").value);
+    updateLightViewMatrix(currLightRotate);
+    updateLightProjectionMatrix();
 }
 
 window.updateZoom = function() {
@@ -225,7 +287,7 @@ window.handleFile = function(e) {
     var reader = new FileReader();
     reader.onload = function(evt) {
         var parsed = JSON.parse(evt.target.result);
-        for(var layer in parsed){
+        for (var layer in parsed) {
             var aux = parsed[layer];
             layers.addLayer(layer, aux['coordinates'], aux['indices'], aux['color'], aux['normals']);
         }
@@ -237,30 +299,50 @@ window.handleFile = function(e) {
     Update transformation matrices
 */
 function updateModelMatrix(centroid) {
+    modelMatrix = identityMatrix();
     return identityMatrix();
 }
 
 function updateProjectionMatrix() {
-    // TODO: Projection matrix
-    var projectionMatrix = identityMatrix();
+    // TODO: Projection matrix 
+    projectionMatrix = identityMatrix();
+    var aspect = window.innerWidth / window.innerHeight;
+    if (currProj == 'perspective') {
+        projectionMatrix = perspectiveMatrix(45 * Math.PI / 180.0, aspect, 1, 50000);
+    } else {
+        var maxzoom = 5000;
+        var size = maxzoom - (currZoom / 100.0) * maxzoom * 0.99;
+        projectionMatrix = orthographicMatrix(-aspect * size, aspect * size, -1 * size, 1 * size, -1, 50000);
+    }
     return projectionMatrix;
 }
 
-function updateViewMatrix(centroid){
+function updateViewMatrix(centroid) {
     // TODO: View matrix
-    var viewMatrix = identityMatrix();
+    viewMatrix = identityMatrix();
+    var radRotate = currRotate * Math.PI / 180.0;
+    var maxzoom = 5000;
+    var radius = maxzoom - (currZoom / 100.0) * maxzoom * 0.99;
+    var x = radius * Math.cos(radRotate);
+    var y = radius * Math.sin(radRotate);
+    viewMatrix = lookAt(add(centroid, [x, y, radius]), centroid, [0, 0, 1]);
     return viewMatrix;
 }
 
 function updateLightViewMatrix(centroid) {
-    // TODO: Light view matrix
-    var lightViewMatrix = identityMatrix();
+    lightViewMatrix = identityMatrix();
+    var radRotate = currLightRotate * Math.PI / 180.0;
+    var radius = 500;
+    var x = radius * Math.cos(radRotate);
+    var y = radius * Math.sin(radRotate);
+    var position = add(centroid, [x, y, radius]);
+    lightViewMatrix = lookAt(position, centroid, [0, 0, 1]);
+    currLightDirection = normalize(sub(position, centroid));
     return lightViewMatrix;
 }
 
 function updateLightProjectionMatrix() {
-    // TODO: Light projection matrix
-    var lightProjectionMatrix = identityMatrix();
+    lightProjectionMatrix = orthographicMatrix(-fbo.size * 2, fbo.size * 2, -fbo.size * 2, fbo.size * 2, -2000, 5000);
     return lightProjectionMatrix;
 }
 
@@ -269,20 +351,27 @@ function updateLightProjectionMatrix() {
 */
 function draw() {
 
-    gl.clearColor(190/255, 210/255, 215/255, 1);
+    gl.clearColor(190 / 255, 210 / 255, 215 / 255, 1);
     gl.clearDepth(1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // TODO: First rendering pass, rendering using FBO
+    modelMatrix = updateModelMatrix(layers.centroid);
+    viewMatrix = updateViewMatrix(layers.centroid);
+    projectionMatrix = updateProjectionMatrix(identityMatrix());
 
+    lightViewMatrix = updateLightViewMatrix(identityMatrix());
+    lightProjectionMatrix = updateLightProjectionMatrix(layers.centroid);
 
-    if(!displayShadowmap) {
+    fbo.start();
+    layers.draw(modelMatrix, lightViewMatrix, lightProjectionMatrix);
+    fbo.stop()
+
+    if (!displayShadowmap) {
         gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-        // TODO: Second rendering pass, render to screen
-    }
-    else {
+        layers.draw(modelMatrix, viewMatrix, projectionMatrix, lightViewMatrix, lightProjectionMatrix, true, fbo.texture);
+    } else {
         gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-        // TODO: Render shadowmap texture computed in first pass
+        renderToScreen.draw(fbo.texture);
     }
 
     requestAnimationFrame(draw);
